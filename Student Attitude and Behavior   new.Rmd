@@ -1,0 +1,504 @@
+---
+title: "Analysis of Behavior and Attitudes of College Students"
+author: "Yen Jo (Sally) Lee, Yi-Tung (Michelle) Lee"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    number_sections: true
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    code_download: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(GGally)
+library(broom)
+library(gridExtra)
+library(DT)
+library(patchwork)
+library(ggthemes)
+library(plotly)
+library(gapminder)
+library(corrplot)
+library(car)
+```
+
+***
+# Dataset overview.  {.tabset}
+
+
+## Tab 1
+
+### Description of the Dataset
+
+Import, explain the variables, and cite the source(s)
+```{r}
+Student_Attitude_and_Behavior <- read.csv("./Student Attitude and Behavior.csv")
+cat(" There are", nrow(Student_Attitude_and_Behavior), "rows, and", ncol(Student_Attitude_and_Behavior),"columns in the Student_Attitude_and_Behavior data." )
+```
+
+
+* [Student Attitude and Behavior]("https://www.kaggle.com/datasets/susanta21/student-attitude-and-behavior/data") The data from the kaggle website, which collects various information about college students through Google Forms to analyze student behavior and attitudes. This data has a total of 19 variables, which includes certification courses, gender, department, height (in cm), weight (in kg), marks in 10th and 12th grade, college marks, hobbies, daily studying time, preferred study environment, salary expectations, satisfaction with their degree and other detailed information. We will present graphical analysis as well as regression analysis for these variables.
+
+
+
+```{r}
+name1 = colnames(Student_Attitude_and_Behavior)[1]
+name2 = colnames(Student_Attitude_and_Behavior)[2]
+names(Student_Attitude_and_Behavior)
+```
+
+
+
+## Tab 2
+
+### Clean and tidy data
+
+```{r}
+is_tibble(Student_Attitude_and_Behavior)
+
+as_tibble(Student_Attitude_and_Behavior) -> SAB
+
+is_tibble(SAB)
+
+glimpse(SAB)
+
+sum(is.na(SAB))
+
+summary(SAB)
+```
+
+We change variables name here.
+```{r}
+SAB <- SAB %>%
+  rename(degree_prefer =Do.you.like.your.degree.) %>%
+  rename(career_willingness = willingness.to.pursue.a.career.based.on.their.degree)%>%
+  mutate(Department = gsub("B.com ISM", "ISM", Department))%>%
+  mutate(Department = gsub("B.com Accounting and Finance ", "Accounting and Finance", Department))
+         
+```
+
+
+## Tab 3
+
+### An interactive table
+```{r tab-tab3, messages=FALSE, warning= FALSE}
+#| collapse = TRUE
+
+datatable(SAB, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T) )
+```
+
+
+
+***
+# Graphs for the Dataset
+
+
+## Qualitative Variable
+
+Based on the dataset, we can see that males outnumber females. Also, we are interested in the distribution of gender across other variables.
+```{r}
+# We delete other bars only preserve the gender bar plot
+
+bar1<- ggplot(SAB, aes(x= Gender))+
+  geom_bar(fill="skyblue")+
+  labs(title ="Gender Distribution")
+
+bar1
+```
+
+
+Below is the distribution of students' time spent on social media and travelling time.
+```{r}
+
+bar4<- ggplot(SAB, aes(x= social.medai...video))+
+  geom_bar(fill="skyblue")+
+  theme(axis.text.x= element_text(angle = 45, hjust = 1))
+
+
+bar5<- ggplot(SAB, aes(x= Travelling.Time))+
+  geom_bar(fill="skyblue")+
+  theme(axis.text.x= element_text(angle = 45, hjust = 1))
+
+bar4+bar5
+```
+
+We create some plot that compares gender across departments and certification levels.
+```{r}
+#we add percentage point here
+
+SAB %>%
+  count(Department, Gender) %>%
+  group_by(Department) %>%
+  mutate(perc = n / sum(n) * 100) %>%
+  ggplot(aes(x = Department, y = n, fill = Gender, label = sprintf("%.1f%%", perc))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.25, size = 3) + 
+  labs(title = "Department vs Gender", x = "Department", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+Based on the distribution, we found that most of the students completed certification course.
+```{r}
+# We recreate the bar plot by changing x and y
+
+ggplot(SAB, aes(x = Gender, fill = Certification.Course)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Certification.Course vs Gender", x = "Count", y = "Certification.Course") +
+  theme_minimal()
+```
+
+
+Here is the stress level among gender, most of the students are in good status.
+```{r messages=FALSE, warning= FALSE}
+#we add percentage point here
+
+stress_gender <- SAB %>%
+  group_by(Stress.Level, Gender) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Gender) %>%
+  mutate(percentage = (count / sum(count)) * 100)
+
+ggplot(stress_gender, aes(x = Gender, y = count, fill = Stress.Level)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), 
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 2.5) + 
+  labs(title = "Gender vs Stress", x = "Gender", y = "Count") +
+  theme_minimal()
+```
+
+
+Here is the breakdown of hobbies and study time. Most of them study for 30 to 60 minutes. We discovered that students who play video games cannot study for more than four hours.
+```{r messages=FALSE, warning= FALSE}
+# We add the daily.studing.time bar here
+
+hobby_studytime<- SAB%>% 
+  group_by(hobbies, daily.studing.time) %>% 
+  summarise(count = n())
+
+study1<- ggplot(hobby_studytime, aes(x = hobbies, y = count, fill = daily.studing.time)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "hobby v.s. studytime", x = "hobbies", y = "Count") +
+  theme_minimal()+
+  theme(axis.text.x= element_text(angle = 45, hjust = 1))
+
+study2<-ggplot(SAB, aes(x=daily.studing.time ))+
+  geom_bar(fill= "skyblue")+
+  theme(axis.text.x= element_text(angle = 45, hjust = 1))
+
+study1+study2
+```
+
+
+
+***
+# Correlation Map
+
+```{r}
+SAB2 <- SAB
+SAB2$Gender <- as.numeric(as.factor(SAB2$Gender))
+numeric_data <- SAB2[, sapply(SAB2, is.numeric)]
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, 
+         addCoef.col = "black")
+```
+
+
+#### This correlation plot provides the correlation coefficients between different pairs of variables, which quantify the strength and direction of the linear relationship between them. 
+
+
+- **college.mark and X10th.Mark (0.47)**: There's a moderate positive correlation between marks in the 10th grade and college, suggesting that higher marks in the 10th grade are associated with higher college marks.
+
+- **college.mark and X12th.Mark (0.42)**: This indicates a moderate positive correlation between 12th-grade marks and college marks.
+
+- **college.mark and other variables**: The correlation coefficients with other variables like salary expectation, height, gender, and weight are close to zero, indicating a very weak to no linear relationship with college marks.
+
+- **X10th.Mark and X12th.Mark (0.47)**: This shows a moderate positive correlation, indicating that students who perform well in the 10th grade also tend to perform well in the 12th grade.
+
+- **Height.CM. and Weight.KG. (0.28)**: A positive correlation here suggests that as height increases, weight also tends to increase, which is a common physiological correlation.
+
+- **Gender and Weight.KG. (0.49)**: This suggests a moderate positive correlation, which might indicate that one gender (coded numerically) tends to weigh more on average.
+
+- **Other Correlations**: Correlations involving salary expectation, height, and gender with 10th and 12th-grade marks are weak, as indicated by coefficients closer to zero.
+
+
+***
+# Influence of Study Habits on Academic Success
+
+
+## Is there a relationship between daily studying time and college marks?
+
+
+```{r}
+SAB$daily.studing.time <- factor(SAB$daily.studing.time, 
+                                      levels = c("0 - 30 minute", "30 - 60 minute", 
+                                                 "1 - 2 Hour", "2 - 3 hour", 
+                                                 "3 - 4 hour", "More Than 4 hour"))
+ggplot(SAB, aes(x = daily.studing.time, y = college.mark, fill=daily.studing.time)) +
+  geom_boxplot() +
+  labs(title = "College Marks by Daily Studying Time", x = "Daily Studying Time", y = "College Marks")
+```
+
+
+### This boxplot illustrates the distribution of college marks across different categories of daily studying time.
+
+(1) Students who studied for 0 to 30 minutes a day and those who studied for 30 to 60 minutes seemed to perform similarly.
+
+(2) The 1 - 2 hour boxes are taller in comparison, indicating a greater difference in scores for these students.
+
+(3) The 3 - 4 hour : Students in this category have a slightly higher median mark than the previous groups.
+
+(4) More than 4 hour : The median number of students who study for more than 4 hours is relatively low. It can be seen that the more time they study, the score performance of students will not necessarily increase.
+
+**This indicate that quality, rather than quantity, of study time is crucial.**
+
+```{r}
+lm_studytime <- lm(college.mark ~ daily.studing.time, SAB)
+summary(lm_studytime)
+```
+(1) The median of the residuals is 1.31, which is close to 0, suggesting that, on average, the model doesn't systematically over- or under-predict.
+
+(2) The p values associated with these coefficients are all above 0.05, indicating that neither increases nor decreases in study time are statistically significant predictors of college performance.
+
+In summary, the linear model indicates that there is no strong evidence of a relationship between `college.mark` and `daily.studing.time`, given the lack of statistical significance for the coefficients and the low R-squared values. The most substantial association seen is with the "2 - 3 hour" study group, which might suggest a slight increase in college marks, but this is not statistically significant at the 5% level. 
+
+***
+# Social and Economic Factors Influencing Student Life
+
+
+## Plotting college marks by Stress.Level
+
+What is the impact of financial status on students’ stress levels and academic performance?
+
+```{r}
+SAB$Financial.Status <- as.factor(SAB$Financial.Status)
+SAB$Stress.Level <- as.factor(SAB$Stress.Level)
+SAB$college.mark <- as.numeric(SAB$college.mark)
+ggplot(SAB, aes(x = Financial.Status, y = college.mark, fill = Financial.Status)) +
+  geom_boxplot() +
+  labs(title = "College Marks by Financial Status", x = "Financial Status", y = "College Marks")
+```
+
+
+The "Fabulous" financial status group has the lowest median college mark. The "Awful" financial status group does not have the lowest median college marks.
+
+This could suggest that financial status may not be the primary determinant of academic success or that there are other factors at play.
+
+### Regression Analysis for Financial Status and College Marks
+```{r}
+SAB$Financial.Status <- factor(SAB$Financial.Status)
+lm_financial <- lm(college.mark ~ Financial.Status , SAB)
+summary(lm_financial)
+```
+The model's results suggest that there is no significant relationship between Financial.Status and college.mark.
+
+Given the lack of statistical significance and the very low R-squared values, Financial.Status alone does not appear to be a good predictor of college.mark in this model. This implies that the impact of financial status on academic performance is not linear. 
+
+
+## Plotting college marks by Stress.Level
+```{r messages=FALSE, warning= FALSE}
+stress_financial<- SAB%>% 
+  group_by(Stress.Level, Financial.Status) %>% 
+  summarise(count = n())
+
+ggplot(stress_financial, aes(x = Financial.Status, y = count, fill = Stress.Level)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Financial vs Stress", x = "Financial", y = "Count") +
+  theme_minimal()
+```
+
+
+### Regression Analysis for Stress Level and College Marks
+```{r}
+SAB$Financial.Status <- as.factor(SAB$Financial.Status)
+SAB$Stress.Level <- as.factor(SAB$Stress.Level)
+lm_stress_finance <- lm(college.mark ~Stress.Level, SAB)
+summary(lm_stress_finance)
+```
+The results of this model also show that there is no significant relationship between Stress Level and College.mark because the P-values for different stress levels are all greater than 0.05.
+
+
+
+## Mutipule Regression analysis (Financial.Status + Stress.Level)
+```{r}
+SAB$Financial.Status <- as.factor(SAB$Financial.Status)
+SAB$Stress.Level <- as.factor(SAB$Stress.Level)
+lm_stress_finance <- lm(college.mark ~ Financial.Status + Stress.Level, SAB)
+summary(lm_stress_finance)
+```
+
+
+The regression analysis indicates that neither `Financial.Status` nor `Stress.Level` are significant predictors of `college.mark` in the context of this model. The adjusted R-squared value being negative is a particularly strong indication that the model has no predictive power.
+
+
+### Add Gender as predictor
+```{r}
+lm_stress_finance_gender <- lm(college.mark ~ Financial.Status + Stress.Level+ Gender, SAB)
+summary(lm_stress_finance_gender)
+```
+
+
+From the coefficient for males is (-9.3780) and p < 0.05, we find that gender appears to be an important predictor in the model, showing a strong impact on college performance, with men expected to score lower than women.
+
+***
+# Academic performace among Gender
+
+```{r}
+plota <- ggplot(SAB, aes(x = X12th.Mark, y = college.mark, color = Gender, shape= Gender)) +
+  geom_jitter(alpha = 1/2, size = 1)+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  labs(title = "12th grade vs. college.mark among Gender")
+
+ggplotly(plota)
+
+plotb <- ggplot(SAB, aes(x = X10th.Mark, y = college.mark, color = Gender, shape= Gender)) +
+  geom_jitter(alpha = 1/2, size = 1)+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  labs(title = "10th grade vs. college.mark among Gender")
+ggplotly(plotb)
+
+```
+
+
+
+
+```{r messages=FALSE, warning= FALSE}
+gradeplot1<- ggplot(SAB, aes(x=X10th.Mark, y=college.mark))+
+  geom_point(color="#a6bddb")+
+  geom_smooth(method= "lm")+
+  labs(title = "10th grade vs. college.mark")
+
+gradeplot2<- ggplot(SAB, aes(x=X12th.Mark, y=college.mark))+
+  geom_point(color="#a6bddb")+
+  geom_smooth(method= "lm")+
+  labs(title = "10th grade vs. college.mark")
+
+gradeplot1+gradeplot2
+```
+
+## Fit the linear model
+
+### Score with Gender
+
+```{r}
+lm_score<- lm(college.mark~ X10th.Mark+ X12th.Mark+ Gender, SAB)
+tidy(lm_score, conf.int = T)
+```
+
+$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + \beta_3X_{i3}+ \epsilon_i$,
+
+$Y_i$ is the student's marks obtained in college or university,
+
+$X_{i1}$ is the student's marks obtained in the 10th grade i,
+
+$X_{i1}$ is the student's marks obtained in the 10th grade i,
+
+$X_{i3}$ is an indicator for male i,
+
+The errors are assumed to have mean 0, constant variance, and are uncorrelated.
+
+The output shows that female students have better academic performance than male's. Female students have 6.6 higher score, on average, as male students who have the same 10th grade and the same 12th grade.
+
+
+```{r}
+lm_score11<- lm(college.mark~ X10th.Mark+ X12th.Mark+ part.time.job, SAB)
+tidy(lm_score11, conf.int = T)
+```
+
+### Score without Gender
+```{r}
+lm_score2<- lm(college.mark~ X10th.Mark+X12th.Mark, SAB)
+tidy(lm_score2, conf.int = T)
+```
+
+### Regression Residuals Diagnostics
+
+#### Plot of residuals vs fitted values
+
+```{r}
+aout <- augment(lm_score2)
+ggplot(data = aout, mapping = aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0)+
+  geom_smooth()
+```
+
+Residuals seem to be centered at 0 for all X, we conclude that a linear model is appropriate.
+
+#### QQ plot of residuals
+
+
+We need to check for normality to verify that we can do a prediction interval 
+```{r}
+ggplot(data = aout, mapping = aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line(color="blue")
+```
+This evaluates the normality of the error terms. Although it has a left long tail, overall looks good.
+
+### Prediction 
+
+```{r}
+range(SAB$X10th.Mark)
+range(SAB$X12th.Mark)
+df1 <- data.frame(X10th.Mark = c(70, 80), X12th.Mark= c(34, 87))
+predict(lm_score2, newdata = df1, interval = "confidence")
+```
+
+Based on the output provided, we predict that students who score 70 points in the 10th grade and 34 points in the 12th grade are likely to achieve around 55 points for their college grade. (95% Confident Interval 49 to 61) Students obtained 80 points in the 10th grade, and 87 points in the 12th grade will get about 79 points for college grade.(95% Confident Interval 75 to 82)
+
+
+***
+# Career Orientation and Academic Choices
+
+- How does satisfaction with their degree influence students' willingness to pursue a career in their field of study?
+```{r}
+SAB_degree<-SAB%>%
+  group_by(degree_prefer)%>%
+  count()%>%
+  mutate(frequency = n / 235)
+
+SAB_degree2<-SAB%>%
+  group_by(degree_prefer, Department)%>%
+  count()%>%
+  mutate(frequency = n / 235)
+
+SAB_degree
+SAB_degree2
+```
+91% of student like their degree, especially the The Business Cinematic Arts (BCA) program(49%).
+
+
+
+- Are students who complete certification courses more likely to have higher salary expectations and a willingness to pursue related careers?
+
+
+```{r}
+t.test(SAB$salary.expectation ~ SAB$Certification.Course)
+```
+Since the p-value (0.1058) is greater than 0.05, we fail to reject the null hypothesis. There is not enough evidence that there is a significant difference in mean salary expectations between students who completed certification courses and those who did not.
+
+
+```{r}
+SAB%>%
+  group_by(Gender , Certification.Course) %>%
+  summarise(MeanSalary = mean(salary.expectation))
+```
+
+***
+# Appendix
+
+```{r Appendix}
+#| ref.label=knitr::all_labels(),
+#| echo = TRUE,
+#| eval = FALSE
+```
